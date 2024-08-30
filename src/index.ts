@@ -149,10 +149,7 @@ app.post(
         res,
         400,
         "INVALID_DATA",
-        errors
-          .array()
-          .map((err) => err.msg)
-          .join(", ")
+        "Os dados fornecidos no corpo da requisição são inválidos."
       );
     }
 
@@ -160,38 +157,58 @@ app.post(
     const measureDate = new Date(measure_datetime);
     const normalizedMeasureType = measure_type.toUpperCase();
 
-    try {
-      const existingMeasurement = checkExistingMeasurement(
-        customer_code,
-        normalizedMeasureType,
-        measureDate
+    // Verifica se a leitura já foi realizada no mês
+    const existingMeasurement = checkExistingMeasurement(
+      customer_code,
+      normalizedMeasureType,
+      measureDate
+    );
+    if (existingMeasurement) {
+      return sendErrorResponse(
+        res,
+        409,
+        "DOUBLE_REPORT",
+        "Leitura do mês já realizada"
       );
-      if (existingMeasurement) {
-        return sendErrorResponse(
-          res,
-          409,
-          "DOUBLE_REPORT",
-          "Leitura do mês já realizada"
-        );
-      }
+    }
 
-      let imageBuffer: Buffer | undefined;
+    // Processa a imagem
+    let imageBuffer: Buffer | undefined;
 
-      if (req.file) {
-        imageBuffer = req.file.buffer;
-      } else if (image && typeof image === "string") {
-        imageBuffer = Buffer.from(image, "base64");
-      } else {
+    if (req.file) {
+      imageBuffer = req.file.buffer;
+    } else if (image && typeof image === "string") {
+      try {
+        // Verifica se a string é uma base64 válida
+        const base64Pattern = /^data:image\/[a-zA-Z]+;base64,/;
+        if (base64Pattern.test(image)) {
+          // Remove o cabeçalho da base64 e converte para Buffer
+          imageBuffer = Buffer.from(image.split(",")[1], "base64");
+        } else {
+          throw new Error("Formato de base64 inválido.");
+        }
+      } catch (error) {
         return sendErrorResponse(
           res,
           400,
-          "INVALID_IMAGE",
-          "Imagem não enviada ou formato inválido."
+          "INVALID_DATA",
+          "Os dados fornecidos no corpo da requisição são inválidos."
         );
       }
+    } else {
+      return sendErrorResponse(
+        res,
+        400,
+        "INVALID_DATA",
+        "Imagem não enviada ou formato inválido."
+      );
+    }
 
+    try {
+      // Extrai o valor da medição usando a API Gemini
       const measureValue = await getMeasureValueFromGeminiLLM(imageBuffer);
 
+      // Adiciona a medição ao banco de dados
       const measurement = addMeasurement(
         customer_code,
         normalizedMeasureType,
@@ -200,6 +217,7 @@ app.post(
       );
       const imageUrl = `https://your-storage-service.com/images/${measurement.measureUUID}.png`;
 
+      // Retorna a resposta de sucesso
       return res.status(200).json({
         image_url: imageUrl,
         measure_value: measurement.measureValue,
@@ -209,7 +227,7 @@ app.post(
       console.error("Erro ao processar a imagem:", error);
       return sendErrorResponse(
         res,
-        500,
+        409,
         "PROCESSING_ERROR",
         "Erro ao processar a imagem."
       );
