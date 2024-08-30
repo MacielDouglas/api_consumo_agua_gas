@@ -1,5 +1,5 @@
 import express, { Request, Response } from "express";
-import { body, validationResult } from "express-validator";
+import { body, validationResult, query } from "express-validator";
 import { v4 as uuidv4 } from "uuid";
 import multer from "multer";
 import { GoogleGenerativeAI } from "@google/generative-ai";
@@ -262,6 +262,54 @@ app.patch(
 
     return res.status(200).json({
       success: true,
+    });
+  }
+);
+
+app.get(
+  "/:customer_code/list",
+  [
+    query("measure_type")
+      .optional()
+      .isString()
+      .custom((value) => ["WATER", "GAS"].includes(value.toUpperCase()))
+      .withMessage(
+        'Measure type deve ser "WATER" ou "GAS" (case insensitive).'
+      ),
+  ],
+  (req: Request, res: Response) => {
+    const { customer_code } = req.params;
+    const { measure_type } = req.query;
+
+    let customerMeasurements = temporaryDatabase.filter(
+      (measurement) => measurement.customerCode === customer_code
+    );
+
+    if (measure_type) {
+      const normalizedMeasureType = (measure_type as string).toUpperCase();
+      customerMeasurements = customerMeasurements.filter(
+        (measurement) => measurement.measureType === normalizedMeasureType
+      );
+    }
+
+    if (customerMeasurements.length === 0) {
+      return sendErrorResponse(
+        res,
+        404,
+        "MEASURES_NOT_FOUND",
+        "Nenhuma leitura encontrada."
+      );
+    }
+
+    return res.status(200).json({
+      customer_code,
+      measures: customerMeasurements.map((measurement) => ({
+        measure_uuid: measurement.measureUUID,
+        measure_datetime: measurement.measureDate,
+        measure_type: measurement.measureType,
+        has_confirmed: measurement.confirmed,
+        image_url: `https://your-storage-service.com/images/${measurement.measureUUID}.png`,
+      })),
     });
   }
 );
