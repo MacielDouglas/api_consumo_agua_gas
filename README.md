@@ -1,4 +1,4 @@
-# Measurement API
+# Api de Consumo de Água e Gas
 
 Esta API é responsável por gerenciar leituras de consumo de água e gás, processando imagens enviadas pelo usuário e utilizando a API Gemini para extrair as medições. A API armazena essas medições em um banco de dados temporário na memória.
 
