@@ -1,4 +1,3 @@
-````markdown
 # Measurement API
 
 Esta API é responsável por gerenciar leituras de consumo de água e gás, processando imagens enviadas pelo usuário e utilizando a API Gemini para extrair as medições. A API armazena essas medições em um banco de dados temporário na memória.
@@ -29,11 +28,11 @@ Esta API é responsável por gerenciar leituras de consumo de água e gás, proc
 ## Como Executar
 
 1. **Clonar o repositório**:
+
    ```bash
    git clone https://github.com/seu-usuario/measurement-api.git
    cd measurement-api
    ```
-````
 
 2. **Iniciar o Docker Compose**:
 
@@ -79,7 +78,3 @@ curl -X GET http://localhost:3000/1234/list?measure_type=WATER
 ## Considerações Finais
 
 Essa API foi desenvolvida para facilitar a leitura e confirmação de consumos de água e gás utilizando tecnologias modernas como o Google Generative AI e Docker. Certifique-se de configurar corretamente a variável de ambiente antes de iniciar o sistema.
-
-```
-
-```
