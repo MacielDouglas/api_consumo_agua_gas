@@ -35,7 +35,7 @@ const validateRequest = [
   body("measure_type")
     .isString()
     .custom((value) => ["WATER", "GAS"].includes(value.toUpperCase()))
-    .withMessage('Measure type deve ser "WATER" ou "GAS" (case insensitive).'),
+    .withMessage('Measure type deve ser "WATER" ou "GAS".'),
 ];
 
 const checkExistingMeasurement = (
@@ -156,7 +156,7 @@ app.post(
       );
     }
 
-    const { customer_code, measure_datetime, measure_type } = req.body;
+    const { customer_code, measure_datetime, measure_type, image } = req.body;
     const measureDate = new Date(measure_datetime);
     const normalizedMeasureType = measure_type.toUpperCase();
 
@@ -175,16 +175,21 @@ app.post(
         );
       }
 
-      if (!req.file) {
+      let imageBuffer: Buffer | undefined;
+
+      if (req.file) {
+        imageBuffer = req.file.buffer;
+      } else if (image && typeof image === "string") {
+        imageBuffer = Buffer.from(image, "base64");
+      } else {
         return sendErrorResponse(
           res,
           400,
-          "INVALID_FILE",
-          "Arquivo de imagem não enviado."
+          "INVALID_IMAGE",
+          "Imagem não enviada ou formato inválido."
         );
       }
 
-      const imageBuffer = req.file.buffer;
       const measureValue = await getMeasureValueFromGeminiLLM(imageBuffer);
 
       const measurement = addMeasurement(
@@ -254,7 +259,7 @@ app.patch(
         res,
         409,
         "CONFIRMATION_DUPLICATE",
-        "Leitura já confirmada."
+        "Leitura do mês já realizada."
       );
     }
 
@@ -273,11 +278,22 @@ app.get(
       .optional()
       .isString()
       .custom((value) => ["WATER", "GAS"].includes(value.toUpperCase()))
-      .withMessage(
-        'Measure type deve ser "WATER" ou "GAS" (case insensitive).'
-      ),
+      .withMessage('"Tipo de medição não permitida"'),
   ],
   (req: Request, res: Response) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return sendErrorResponse(
+        res,
+        400,
+        "INVALID_QUERY",
+        errors
+          .array()
+          .map((err) => err.msg)
+          .join(", ")
+      );
+    }
+
     const { customer_code } = req.params;
     const { measure_type } = req.query;
 
