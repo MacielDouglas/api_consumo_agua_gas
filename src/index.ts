@@ -5,27 +5,26 @@ import multer from "multer";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import { Buffer } from "buffer";
 
-// Tipo para armazenar leituras no banco de dados temporário
 interface Measurement {
   customerCode: string;
   measureType: string;
   measureDate: Date;
+  measureUUID: string;
+  measureValue: number;
+  confirmed: boolean;
 }
 
 const app = express();
 const port = process.env.PORT || 3000;
 
-// Configurar o middleware express.json() para permitir corpos de requisição maiores
 app.use(express.json({ limit: "10mb" }));
 
-// Configurar o multer para armazenar arquivos na memória
 const storage = multer.memoryStorage();
 const upload = multer({ storage });
 
 // Banco de dados temporário para leituras
 const temporaryDatabase: Measurement[] = [];
 
-// Middleware para validar os dados enviados
 const validateRequest = [
   body("customer_code")
     .isString()
@@ -39,7 +38,6 @@ const validateRequest = [
     .withMessage('Measure type deve ser "WATER" ou "GAS" (case insensitive).'),
 ];
 
-// Função para verificar se já existe uma leitura para o mês atual
 const checkExistingMeasurement = (
   customerCode: string,
   measureType: string,
@@ -54,16 +52,40 @@ const checkExistingMeasurement = (
   );
 };
 
-// Função para adicionar uma leitura ao banco de dados temporário
 const addMeasurement = (
   customerCode: string,
   measureType: string,
-  measureDate: Date
-): void => {
-  temporaryDatabase.push({ customerCode, measureType, measureDate });
+  measureDate: Date,
+  measureValue: number
+): Measurement => {
+  const measurement: Measurement = {
+    customerCode,
+    measureType,
+    measureDate,
+    measureUUID: uuidv4(),
+    measureValue,
+    confirmed: false,
+  };
+  temporaryDatabase.push(measurement);
+  return measurement;
 };
 
-// Configurar o cliente do Google Generative AI
+const findMeasurementByUUID = (
+  measureUUID: string
+): Measurement | undefined => {
+  return temporaryDatabase.find(
+    (measurement) => measurement.measureUUID === measureUUID
+  );
+};
+
+const confirmMeasurement = (
+  measurement: Measurement,
+  confirmedValue: number
+): void => {
+  measurement.measureValue = confirmedValue;
+  measurement.confirmed = true;
+};
+
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY!);
 
 const extractMeasureValue = (text: string): number => {
@@ -103,7 +125,6 @@ const getMeasureValueFromGeminiLLM = async (
   }
 };
 
-// Função para enviar resposta de erro
 const sendErrorResponse = (
   res: Response,
   statusCode: number,
@@ -165,16 +186,19 @@ app.post(
 
       const imageBuffer = req.file.buffer;
       const measureValue = await getMeasureValueFromGeminiLLM(imageBuffer);
-      const measureUUID = uuidv4();
-      const imageUrl = `https://your-storage-service.com/images/${measureUUID}.png`;
 
-      // Adiciona a nova leitura ao banco de dados temporário
-      addMeasurement(customer_code, normalizedMeasureType, measureDate);
+      const measurement = addMeasurement(
+        customer_code,
+        normalizedMeasureType,
+        measureDate,
+        measureValue
+      );
+      const imageUrl = `https://your-storage-service.com/images/${measurement.measureUUID}.png`;
 
       return res.status(200).json({
         image_url: imageUrl,
-        measure_value: measureValue,
-        measure_uuid: measureUUID,
+        measure_value: measurement.measureValue,
+        measure_uuid: measurement.measureUUID,
       });
     } catch (error) {
       console.error("Erro ao processar a imagem:", error);
@@ -185,6 +209,60 @@ app.post(
         "Erro ao processar a imagem."
       );
     }
+  }
+);
+
+app.patch(
+  "/confirm",
+  [
+    body("measure_uuid")
+      .isString()
+      .withMessage("measure_uuid deve ser uma string."),
+    body("confirmed_value")
+      .isInt()
+      .withMessage("confirmed_value deve ser um número inteiro."),
+  ],
+  (req: Request, res: Response) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return sendErrorResponse(
+        res,
+        400,
+        "INVALID_DATA",
+        errors
+          .array()
+          .map((err) => err.msg)
+          .join(", ")
+      );
+    }
+
+    const { measure_uuid, confirmed_value } = req.body;
+
+    const measurement = findMeasurementByUUID(measure_uuid);
+
+    if (!measurement) {
+      return sendErrorResponse(
+        res,
+        404,
+        "MEASURE_NOT_FOUND",
+        "Leitura não encontrada."
+      );
+    }
+
+    if (measurement.confirmed) {
+      return sendErrorResponse(
+        res,
+        409,
+        "CONFIRMATION_DUPLICATE",
+        "Leitura já confirmada."
+      );
+    }
+
+    confirmMeasurement(measurement, confirmed_value);
+
+    return res.status(200).json({
+      success: true,
+    });
   }
 );
 
